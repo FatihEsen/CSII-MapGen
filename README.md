@@ -28,6 +28,8 @@ Welcome to the most precise heightmap acquisition tool designed specifically for
 
 ---
 
+![Ana Ekran](screenshots/CSIImg.png)
+
 ### 📖 Professional Usage Guide
 
 #### 1. Locate Your Canvas
