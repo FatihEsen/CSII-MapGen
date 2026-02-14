@@ -1,0 +1,130 @@
+
+import { MapArea, MapSettings } from '../types';
+
+export class TerrainService {
+  private static lerp(a: number, b: number, t: number) {
+    return a + t * (b - a);
+  }
+
+  private static fade(t: number) {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  private static noise(x: number, y: number, seed: number): number {
+    const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+    return n - Math.floor(n);
+  }
+
+  private static getFBM(x: number, y: number, octaves: number, persistence: number, scale: number, seed: number): number {
+    let total = 0;
+    let frequency = scale;
+    let amplitude = 1;
+    let maxValue = 0;
+    for (let i = 0; i < octaves; i++) {
+      const ix = Math.floor(x * frequency);
+      const iy = Math.floor(y * frequency);
+      const fx = (x * frequency) - ix;
+      const fy = (y * frequency) - iy;
+      const a = this.noise(ix, iy, seed);
+      const b = this.noise(ix + 1, iy, seed);
+      const c = this.noise(ix, iy + 1, seed);
+      const d = this.noise(ix + 1, iy + 1, seed);
+      const ux = this.fade(fx);
+      const uy = this.fade(fy);
+      const res = this.lerp(this.lerp(a, b, ux), this.lerp(c, d, ux), uy);
+      total += res * amplitude;
+      maxValue += amplitude;
+      amplitude *= persistence;
+      frequency *= 2;
+    }
+    return total / maxValue;
+  }
+
+  private static long2tile(lon: number, zoom: number) { return (Math.floor((lon + 180) / 360 * Math.pow(2, zoom))); }
+  private static lat2tile(lat: number, zoom: number) { return (Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
+
+  private static async loadImage(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`Tile failed: ${url}`));
+      img.src = url;
+    });
+  }
+
+  private static async fetchTerrainTiles(area: MapArea): Promise<{ grid: Float32Array, width: number, height: number }> {
+    const ZOOM = 13;
+    const tileX_min = this.long2tile(area.bounds.west, ZOOM);
+    const tileX_max = this.long2tile(area.bounds.east, ZOOM);
+    const tileY_min = this.lat2tile(area.bounds.north, ZOOM);
+    const tileY_max = this.lat2tile(area.bounds.south, ZOOM);
+    const xRange = tileX_max - tileX_min + 1;
+    const yRange = tileY_max - tileY_min + 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = xRange * 256;
+    canvas.height = yRange * 256;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error("Canvas context failed");
+    const promises = [];
+    for (let x = 0; x < xRange; x++) {
+      for (let y = 0; y < yRange; y++) {
+        const url = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${ZOOM}/${tileX_min + x}/${tileY_min + y}.png`;
+        promises.push(this.loadImage(url).then(img => ctx.drawImage(img, x * 256, y * 256)).catch(() => {}));
+      }
+    }
+    await Promise.all(promises);
+    const worldSize = 256 * Math.pow(2, ZOOM);
+    const project = (lat: number, lng: number) => {
+      let siny = Math.min(Math.max(Math.sin(lat * Math.PI / 180), -0.9999), 0.9999);
+      return { x: worldSize * (0.5 + lng / 360), y: worldSize * (0.5 - Math.log((1 + siny) / (1 - siny)) / (4 * Math.PI)) };
+    };
+    const topLeft = project(area.bounds.north, area.bounds.west);
+    const bottomRight = project(area.bounds.south, area.bounds.east);
+    const sX = Math.max(0, Math.floor(topLeft.x - tileX_min * 256));
+    const sY = Math.max(0, Math.floor(topLeft.y - tileY_min * 256));
+    const w = Math.ceil(bottomRight.x - topLeft.x);
+    const h = Math.ceil(bottomRight.y - topLeft.y);
+    const imageData = ctx.getImageData(sX, sY, Math.min(canvas.width - sX, w), Math.min(canvas.height - sY, h));
+    const rawData = imageData.data;
+    const elevGrid = new Float32Array(imageData.width * imageData.height);
+    for (let i = 0; i < elevGrid.length; i++) {
+      elevGrid[i] = (rawData[i * 4] * 256 + rawData[i * 4 + 1] + rawData[i * 4 + 2] / 256) - 32768;
+    }
+    return { grid: elevGrid, width: imageData.width, height: imageData.height };
+  }
+
+  static async generateSimulatedTerrain(area: MapArea, settings: MapSettings): Promise<Uint16Array> {
+    const size = settings.resolution;
+    const data = new Uint16Array(size * size);
+    const seed = Math.random() * 1000;
+    const type = settings.terrainType;
+    let realData: { grid: Float32Array, width: number, height: number } | null = null;
+    if (type === 'REAL_WORLD') {
+      try { realData = await this.fetchTerrainTiles(area); } catch (e) { console.error(e); }
+    }
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const nx = x / size;
+        const ny = y / size;
+        let height = 0;
+        if (type === 'REAL_WORLD' && realData) {
+          const gx = nx * (realData.width - 1);
+          const gy = ny * (realData.height - 1);
+          const ix = Math.floor(gx);
+          const iy = Math.floor(gy);
+          const fx = gx - ix;
+          const fy = gy - iy;
+          const getVal = (cx: number, cy: number) => realData!.grid[Math.min(realData!.height - 1, Math.max(0, cy)) * realData!.width + Math.min(realData!.width - 1, Math.max(0, cx))];
+          const top = getVal(ix, iy) * (1 - fx) + getVal(ix + 1, iy) * fx;
+          const bottom = getVal(ix, iy + 1) * (1 - fx) + getVal(ix + 1, iy + 1) * fx;
+          height = (top * (1 - fy) + bottom * fy) / settings.maxHeight;
+        } else {
+          height = this.getFBM(nx, ny, 6, 0.5, 2.0, seed);
+        }
+        data[y * size + x] = Math.floor(Math.max(0, Math.min(1, height)) * 65535);
+      }
+    }
+    return data;
+  }
+}
