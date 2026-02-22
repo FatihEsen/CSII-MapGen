@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@builder.io/react": "^9.1.2",
+    "@builder.io/sdk": "^6.2.1",
     "@google/genai": "^1.39.0",
     "leaflet": "^1.9.4",
     "react": "^19.2.4",

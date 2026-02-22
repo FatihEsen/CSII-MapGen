@@ -1,22 +1,23 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Rectangle, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapSettings, MapArea, Coordinates } from './types';
+import { MapSettings, MapArea, Coordinates, TerrainResult } from './types';
 import { Sidebar } from './components/Sidebar';
 import { PreviewPanel } from './components/PreviewPanel';
 import { TerrainService } from './services/terrainService';
 
-const CS2_MAP_SIZE_KM = 14.336; 
+const CS2_BASE_SIZE_KM = 14.336; 
 const CS2_START_SIZE_KM = 2.0; 
 
 const DEFAULT_SETTINGS: MapSettings = {
   resolution: 4096,
-  physicalSizeKm: CS2_MAP_SIZE_KM,
+  physicalSizeKm: CS2_BASE_SIZE_KM,
+  sizeMultiplier: 1,
   minHeight: 0,
   maxHeight: 1000,
   waterLevel: 0, 
   terrainType: 'REAL_WORLD',
+  exportSatellite: true,
 };
 
 const INITIAL_CENTER: Coordinates = { lat: 40.7128, lng: -74.0060 }; // New York default
@@ -32,16 +33,26 @@ const getBoundsFromCenter = (center: L.LatLng, sizeKm: number) => {
   );
 };
 
-const MapController = ({ onAreaChange }: { onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void }) => {
+const MapController = ({ 
+  settings, 
+  onAreaChange, 
+  setMap 
+}: { 
+  settings: MapSettings,
+  onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void, 
+  setMap: (map: L.Map) => void 
+}) => {
   const map = useMap();
-  
+
   useEffect(() => {
+    setMap(map);
     setTimeout(() => map.invalidateSize(), 100);
-  }, [map]);
+  }, [map, setMap]);
 
   const updateArea = useCallback(() => {
     const center = map.getCenter();
-    const exportBounds = getBoundsFromCenter(center, CS2_MAP_SIZE_KM);
+    const currentMapSize = CS2_BASE_SIZE_KM * settings.sizeMultiplier;
+    const exportBounds = getBoundsFromCenter(center, currentMapSize);
     const startAreaBounds = getBoundsFromCenter(center, CS2_START_SIZE_KM);
     
     onAreaChange({
@@ -53,7 +64,7 @@ const MapController = ({ onAreaChange }: { onAreaChange: (area: MapArea, fullBou
         west: exportBounds.getWest(),
       }
     }, exportBounds, startAreaBounds);
-  }, [map, onAreaChange]);
+  }, [map, settings.sizeMultiplier, onAreaChange]);
 
   useMapEvents({
     move: updateArea,
@@ -74,7 +85,7 @@ const App: React.FC = () => {
   const [selectionBounds, setSelectionBounds] = useState<L.LatLngBounds | null>(null);
   const [startAreaBounds, setStartAreaBounds] = useState<L.LatLngBounds | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [heightmapData, setHeightmapData] = useState<Uint16Array | null>(null);
+  const [terrainResult, setTerrainResult] = useState<TerrainResult | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   const handleAreaChange = useCallback((area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => {
@@ -86,12 +97,16 @@ const App: React.FC = () => {
   const handleSearch = async (query: string) => {
     if (!query || !mapInstance) return;
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
+        headers: {
+          'User-Agent': 'CS2-Heightmap-Generator/1.0 (https://github.com/FatihEsen/CSII-MapGen)'
+        }
+      });
       const data = await response.json();
       if (data && data.length > 0) {
         mapInstance.flyTo([parseFloat(data[0].lat), parseFloat(data[0].lon)], 13);
       } else {
-        alert("Location not found.");
+        alert("Konum bulunamadı.");
       }
     } catch (err) {
       console.error(err);
@@ -102,15 +117,21 @@ const App: React.FC = () => {
     if (!mapInstance) return;
     navigator.geolocation.getCurrentPosition((pos) => {
       mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 13);
-    }, (err) => alert("Could not get location."));
+    }, (err) => alert("Konum alınamadı."));
   };
 
   const handleGenerateHeightmap = async () => {
     if (!selectedArea) return;
     setIsGenerating(true);
     try {
-      const terrain = await TerrainService.generateSimulatedTerrain(selectedArea, settings);
-      setHeightmapData(terrain);
+      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings);
+      setTerrainResult(result);
+      
+      // Auto-adjust maxHeight based on the fetched terrain
+      setSettings(prev => ({
+        ...prev,
+        maxHeight: Math.ceil(result.maxElevation / 10) * 10
+      }));
     } catch (err) {
       console.error(err);
       alert("Error: " + err);
@@ -150,17 +171,16 @@ const App: React.FC = () => {
 
       <main className="flex-1 relative h-1/2 lg:h-full min-h-0 bg-slate-800">
         <div className="absolute inset-0 z-0">
-          <MapContainer 
-            center={[INITIAL_CENTER.lat, INITIAL_CENTER.lng]} 
-            zoom={12} 
+          <MapContainer
+            center={[INITIAL_CENTER.lat, INITIAL_CENTER.lng]}
+            zoom={12}
             className="w-full h-full"
-            ref={setMapInstance}
           >
             <TileLayer
               attribution='&copy; OpenStreetMap'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapController onAreaChange={handleAreaChange} />
+            <MapController settings={settings} onAreaChange={handleAreaChange} setMap={setMapInstance} />
             {selectionBounds && (
               <Rectangle bounds={selectionBounds} pathOptions={selectionOptions} />
             )}
@@ -181,7 +201,9 @@ const App: React.FC = () => {
           <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 px-4 py-2 rounded-full shadow-lg flex items-center space-x-6">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-blue-400 bg-blue-400/10"></div>
-              <span className="text-[10px] text-slate-300 font-bold whitespace-nowrap uppercase">World Map: {CS2_MAP_SIZE_KM}km</span>
+              <span className="text-[10px] text-slate-300 font-bold whitespace-nowrap uppercase">
+                EXPORT SIZE: {(CS2_BASE_SIZE_KM * settings.sizeMultiplier).toFixed(2)}km
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-amber-400 bg-amber-400/20"></div>
@@ -194,12 +216,13 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {heightmapData && (
+        {terrainResult && (
           <div className="absolute top-4 right-4 w-80 z-30 pointer-events-auto">
             <PreviewPanel 
-              data={heightmapData} 
+              data={terrainResult.heightmap} 
+              satelliteUrl={terrainResult.satelliteUrl}
               settings={settings} 
-              onClose={() => setHeightmapData(null)} 
+              onClose={() => setTerrainResult(null)} 
             />
           </div>
         )}
