@@ -1,4 +1,4 @@
-import { MapArea, MapSettings } from '../types';
+import { MapArea, MapSettings, TerrainResult } from '../types';
 
 export class TerrainService {
   private static lerp(a: number, b: number, t: number) {
@@ -47,12 +47,12 @@ export class TerrainService {
       const img = new Image();
       img.crossOrigin = "Anonymous";
       img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Tile failed: ${url}`));
+      img.onerror = () => reject(new Error(`Tile yüklenemedi: ${url}`));
       img.src = url;
     });
   }
 
-  private static async fetchTerrainTiles(area: MapArea): Promise<{ grid: Float32Array, width: number, height: number }> {
+  private static async fetchTerrainTiles(area: MapArea): Promise<{ grid: Float32Array, width: number, height: number, minE: number, maxE: number }> {
     const ZOOM = 13;
     const tileX_min = this.long2tile(area.bounds.west, ZOOM);
     const tileX_max = this.long2tile(area.bounds.east, ZOOM);
@@ -65,6 +65,7 @@ export class TerrainService {
     canvas.height = yRange * 256;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error("Tuval içeriği alınamadı.");
+    
     const promises = [];
     let failedCount = 0;
     for (let x = 0; x < xRange; x++) {
@@ -83,6 +84,7 @@ export class TerrainService {
     if (failedCount > 0) {
       console.warn(`${failedCount} adet tile yüklenemedi. Bu durum yükseklik haritasında boşluklara neden olabilir.`);
     }
+
     const worldSize = 256 * Math.pow(2, ZOOM);
     const project = (lat: number, lng: number) => {
       let siny = Math.min(Math.max(Math.sin(lat * Math.PI / 180), -0.9999), 0.9999);
@@ -97,21 +99,86 @@ export class TerrainService {
     const imageData = ctx.getImageData(sX, sY, Math.min(canvas.width - sX, w), Math.min(canvas.height - sY, h));
     const rawData = imageData.data;
     const elevGrid = new Float32Array(imageData.width * imageData.height);
+    let minE = 100000;
+    let maxE = -100000;
+
     for (let i = 0; i < elevGrid.length; i++) {
-      elevGrid[i] = (rawData[i * 4] * 256 + rawData[i * 4 + 1] + rawData[i * 4 + 2] / 256) - 32768;
+      const val = (rawData[i * 4] * 256 + rawData[i * 4 + 1] + rawData[i * 4 + 2] / 256) - 32768;
+      elevGrid[i] = val;
+      if (val < minE) minE = val;
+      if (val > maxE) maxE = val;
     }
-    return { grid: elevGrid, width: imageData.width, height: imageData.height };
+    return { grid: elevGrid, width: imageData.width, height: imageData.height, minE, maxE };
   }
 
-  static async generateSimulatedTerrain(area: MapArea, settings: MapSettings): Promise<Uint16Array> {
+  private static async fetchSatelliteTiles(area: MapArea, resolution: number): Promise<string> {
+    const ZOOM = 15; 
+    const tileX_min = this.long2tile(area.bounds.west, ZOOM);
+    const tileX_max = this.long2tile(area.bounds.east, ZOOM);
+    const tileY_min = this.lat2tile(area.bounds.north, ZOOM);
+    const tileY_max = this.lat2tile(area.bounds.south, ZOOM);
+    const xRange = tileX_max - tileX_min + 1;
+    const yRange = tileY_max - tileY_min + 1;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = xRange * 256;
+    canvas.height = yRange * 256;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error("Uydu haritası tuvali oluşturulamadı.");
+
+    const promises = [];
+    for (let x = 0; x < xRange; x++) {
+      for (let y = 0; y < yRange; y++) {
+        const url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${ZOOM}/${tileY_min + y}/${tileX_min + x}`;
+        promises.push(this.loadImage(url).then(img => ctx.drawImage(img, x * 256, y * 256)).catch(() => {}));
+      }
+    }
+    await Promise.all(promises);
+
+    const worldSize = 256 * Math.pow(2, ZOOM);
+    const project = (lat: number, lng: number) => {
+      let siny = Math.min(Math.max(Math.sin(lat * Math.PI / 180), -0.9999), 0.9999);
+      return { x: worldSize * (0.5 + lng / 360), y: worldSize * (0.5 - Math.log((1 + siny) / (1 - siny)) / (4 * Math.PI)) };
+    };
+
+    const topLeft = project(area.bounds.north, area.bounds.west);
+    const bottomRight = project(area.bounds.south, area.bounds.east);
+    const sX = Math.max(0, Math.floor(topLeft.x - tileX_min * 256));
+    const sY = Math.max(0, Math.floor(topLeft.y - tileY_min * 256));
+    const w = Math.ceil(bottomRight.x - topLeft.x);
+    const h = Math.ceil(bottomRight.y - topLeft.y);
+
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = resolution;
+    outputCanvas.height = resolution;
+    const oCtx = outputCanvas.getContext('2d');
+    if (!oCtx) throw new Error("Export tuvali oluşturulamadı.");
+
+    oCtx.drawImage(canvas, sX, sY, w, h, 0, 0, resolution, resolution);
+    return outputCanvas.toDataURL('image/png');
+  }
+
+  static async generateSimulatedTerrain(area: MapArea, settings: MapSettings): Promise<TerrainResult> {
     const size = settings.resolution;
     const data = new Uint16Array(size * size);
     const seed = Math.random() * 1000;
     const type = settings.terrainType;
-    let realData: { grid: Float32Array, width: number, height: number } | null = null;
+    let realData: { grid: Float32Array, width: number, height: number, minE: number, maxE: number } | null = null;
+    let satelliteUrl: string | undefined = undefined;
+
     if (type === 'REAL_WORLD') {
-      try { realData = await this.fetchTerrainTiles(area); } catch (e) { console.error(e); }
+      try { 
+        realData = await this.fetchTerrainTiles(area); 
+        if (settings.exportSatellite) {
+          satelliteUrl = await this.fetchSatelliteTiles(area, settings.resolution);
+        }
+      } catch (e) { 
+        console.error(e); 
+      }
     }
+
+    const effectiveMaxHeight = (realData && type === 'REAL_WORLD') ? realData.maxE : settings.maxHeight;
+
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const nx = x / size;
@@ -127,13 +194,20 @@ export class TerrainService {
           const getVal = (cx: number, cy: number) => realData!.grid[Math.min(realData!.height - 1, Math.max(0, cy)) * realData!.width + Math.min(realData!.width - 1, Math.max(0, cx))];
           const top = getVal(ix, iy) * (1 - fx) + getVal(ix + 1, iy) * fx;
           const bottom = getVal(ix, iy + 1) * (1 - fx) + getVal(ix + 1, iy + 1) * fx;
-          height = (top * (1 - fy) + bottom * fy) / settings.maxHeight;
+          const absH = top * (1 - fy) + bottom * fy;
+          height = absH / effectiveMaxHeight;
         } else {
           height = this.getFBM(nx, ny, 6, 0.5, 2.0, seed);
         }
         data[y * size + x] = Math.floor(Math.max(0, Math.min(1, height)) * 65535);
       }
     }
-    return data;
+
+    return {
+      heightmap: data,
+      satelliteUrl,
+      minElevation: realData ? realData.minE : 0,
+      maxElevation: realData ? realData.maxE : 1000
+    };
   }
 }

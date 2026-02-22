@@ -1,4 +1,3 @@
-
 export type TerrainType = 'REAL_WORLD' | 'PROCEDURAL_COAST' | 'RIVER_VALLEY' | 'PLAINS' | 'RUGGED_HILLS';
 
 export interface MapSettings {
@@ -8,6 +7,7 @@ export interface MapSettings {
   maxHeight: number;
   waterLevel: number;
   terrainType: TerrainType;
+  exportSatellite: boolean;
 }
 
 export interface Coordinates {
@@ -23,4 +23,11 @@ export interface MapArea {
     east: number;
     west: number;
   };
+}
+
+export interface TerrainResult {
+  heightmap: Uint16Array;
+  satelliteUrl?: string;
+  minElevation: number;
+  maxElevation: number;
 }

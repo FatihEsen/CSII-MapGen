@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Rectangle, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MapSettings, MapArea, Coordinates } from './types';
+import { MapSettings, MapArea, Coordinates, TerrainResult } from './types';
 import { Sidebar } from './components/Sidebar';
 import { PreviewPanel } from './components/PreviewPanel';
 import { TerrainService } from './services/terrainService';
@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: MapSettings = {
   maxHeight: 1000,
   waterLevel: 0, 
   terrainType: 'REAL_WORLD',
+  exportSatellite: true,
 };
 
 const INITIAL_CENTER: Coordinates = { lat: 40.7128, lng: -74.0060 }; // New York default
@@ -74,7 +75,7 @@ const App: React.FC = () => {
   const [selectionBounds, setSelectionBounds] = useState<L.LatLngBounds | null>(null);
   const [startAreaBounds, setStartAreaBounds] = useState<L.LatLngBounds | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [heightmapData, setHeightmapData] = useState<Uint16Array | null>(null);
+  const [terrainResult, setTerrainResult] = useState<TerrainResult | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
   const handleAreaChange = useCallback((area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => {
@@ -113,8 +114,14 @@ const App: React.FC = () => {
     if (!selectedArea) return;
     setIsGenerating(true);
     try {
-      const terrain = await TerrainService.generateSimulatedTerrain(selectedArea, settings);
-      setHeightmapData(terrain);
+      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings);
+      setTerrainResult(result);
+      
+      // Auto-adjust maxHeight based on the fetched terrain
+      setSettings(prev => ({
+        ...prev,
+        maxHeight: Math.ceil(result.maxElevation / 10) * 10
+      }));
     } catch (err) {
       console.error(err);
       alert("Error: " + err);
@@ -197,12 +204,13 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {heightmapData && (
+        {terrainResult && (
           <div className="absolute top-4 right-4 w-80 z-30 pointer-events-auto">
             <PreviewPanel 
-              data={heightmapData} 
+              data={terrainResult.heightmap} 
+              satelliteUrl={terrainResult.satelliteUrl}
               settings={settings} 
-              onClose={() => setHeightmapData(null)} 
+              onClose={() => setTerrainResult(null)} 
             />
           </div>
         )}

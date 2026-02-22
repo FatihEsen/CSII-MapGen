@@ -3,14 +3,16 @@ import { MapSettings } from '../types';
 
 interface PreviewPanelProps {
   data: Uint16Array;
+  satelliteUrl?: string;
   settings: MapSettings;
   onClose: () => void;
 }
 
-export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onClose }) => {
+export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, settings, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [autoContrast, setAutoContrast] = useState(true);
+  const [viewMode, setViewMode] = useState<'heightmap' | 'satellite'>(satelliteUrl ? 'satellite' : 'heightmap');
 
   const { minVal, maxVal } = useMemo(() => {
     let min = 65535;
@@ -25,6 +27,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
   const PREVIEW_SIZE = 512;
 
   useEffect(() => {
+    if (viewMode === 'satellite' && satelliteUrl) return;
+
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
@@ -38,7 +42,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
             const dataX = Math.floor((x / PREVIEW_SIZE) * size);
             const dataY = Math.floor((y / PREVIEW_SIZE) * size);
             const val16 = data[dataY * size + dataX];
-
+            
             let val8;
             if (autoContrast) {
                val8 = (val16 - minVal) * scaleFactor;
@@ -56,7 +60,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
         ctx.putImageData(imgData, 0, 0);
       }
     }
-  }, [data, settings.resolution, autoContrast, minVal, maxVal]);
+  }, [data, settings.resolution, autoContrast, minVal, maxVal, viewMode, satelliteUrl]);
 
   const crc32 = (() => {
     const table = new Uint32Array(256);
@@ -86,9 +90,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
     return chunk;
   };
 
-  const handleDownload16Bit = async () => {
+  const handleDownload = async () => {
     setIsExporting(true);
     try {
+      // 1. Download Heightmap
       const width = settings.resolution;
       const height = settings.resolution;
       const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -133,15 +138,23 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
       const idat = createChunk('IDAT', compressed);
       const iend = createChunk('IEND', new Uint8Array(0));
       const blob = new Blob([signature, ihdr, idat, iend], { type: 'image/png' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `heightmap_${settings.maxHeight}m.png`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const hUrl = URL.createObjectURL(blob);
+      const hLink = document.createElement('a');
+      hLink.href = hUrl;
+      hLink.download = `heightmap_${settings.maxHeight}m.png`;
+      hLink.click();
+      URL.revokeObjectURL(hUrl);
+
+      // 2. Download Satellite (if available)
+      if (satelliteUrl) {
+        const sLink = document.createElement('a');
+        sLink.href = satelliteUrl;
+        sLink.download = `satellite_overlay.png`;
+        sLink.click();
+      }
     } catch (err) {
       console.error(err);
-      alert("PNG Export Error!");
+      alert("PNG Dışa Aktarma Hatası!");
     } finally {
       setIsExporting(false);
     }
@@ -155,7 +168,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
             <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-ping"></span>
             <span className="h-1.5 w-1.5 rounded-full bg-blue-500"></span>
           </div>
-          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Heightmap Preview</span>
+          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">
+            {viewMode === 'satellite' ? 'Satellite Preview' : 'Heightmap Preview'}
+          </span>
         </div>
         <button onClick={onClose} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-white">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -165,46 +180,83 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
       </div>
       
       <div className="w-full aspect-square bg-slate-950 rounded-xl border border-slate-800 overflow-hidden mb-5 shadow-inner group relative">
-        <canvas
-          ref={canvasRef}
-          width={PREVIEW_SIZE}
-          height={PREVIEW_SIZE}
-          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-        />
-        <button 
-          onClick={() => setAutoContrast(!autoContrast)}
-          className={`absolute top-2 right-2 px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${
-            autoContrast 
-            ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' 
-            : 'bg-slate-800/50 border-slate-600/50 text-slate-500'
-          }`}
-        >
-          {autoContrast ? 'AUTO CONTRAST: ON' : 'RAW VIEW'}
-        </button>
+        {viewMode === 'satellite' && satelliteUrl ? (
+          <img src={satelliteUrl} alt="Satellite" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        ) : (
+          <canvas 
+            ref={canvasRef} 
+            width={PREVIEW_SIZE} 
+            height={PREVIEW_SIZE} 
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          />
+        )}
+        
+        <div className="absolute top-2 left-2 flex space-x-1">
+          <button 
+            onClick={() => setViewMode('heightmap')}
+            className={`px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${
+              viewMode === 'heightmap' 
+              ? 'bg-blue-600 border-blue-400 text-white' 
+              : 'bg-slate-900/80 border-slate-700 text-slate-400'
+            }`}
+          >
+            HEIGHT
+          </button>
+          {satelliteUrl && (
+            <button 
+              onClick={() => setViewMode('satellite')}
+              className={`px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${
+                viewMode === 'satellite' 
+                ? 'bg-blue-600 border-blue-400 text-white' 
+                : 'bg-slate-900/80 border-slate-700 text-slate-400'
+              }`}
+            >
+              SAT
+            </button>
+          )}
+        </div>
+
+        {viewMode === 'heightmap' && (
+          <button 
+            onClick={() => setAutoContrast(!autoContrast)}
+            className={`absolute top-2 right-2 px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${
+              autoContrast 
+              ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' 
+              : 'bg-slate-800/50 border-slate-600/50 text-slate-500'
+            }`}
+          >
+            {autoContrast ? 'CONTRAST: ON' : 'RAW'}
+          </button>
+        )}
       </div>
 
       <div className="w-full mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-        <h4 className="text-[10px] font-bold text-amber-400 mb-1 uppercase">CS2 Import Settings</h4>
-        <p className="text-[9px] text-slate-300">Set these values in the Map Editor:</p>
-        <ul className="text-[9px] text-slate-400 list-disc list-inside mt-1">
-          <li>Height Scale: <span className="text-white font-mono">{settings.maxHeight}m</span></li>
-          <li>Min Height: <span className="text-white font-mono">0m</span></li>
-        </ul>
+        <h4 className="text-[10px] font-bold text-amber-400 mb-1 uppercase tracking-wider">CS2 Import Settings</h4>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="flex flex-col">
+            <span className="text-[8px] text-slate-500 uppercase">Height Scale</span>
+            <span className="text-[11px] text-white font-mono font-bold">{settings.maxHeight}m</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[8px] text-slate-500 uppercase">Min Height</span>
+            <span className="text-[11px] text-white font-mono font-bold">0m</span>
+          </div>
+        </div>
       </div>
 
       <button 
-        onClick={handleDownload16Bit}
+        onClick={handleDownload}
         disabled={isExporting}
-        className="w-full bg-white hover:bg-slate-100 disabled:bg-slate-800 text-slate-950 font-bold py-3.5 rounded-xl text-xs transition-all shadow-xl flex items-center justify-center space-x-2 active:scale-95"
+        className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-white font-bold py-4 rounded-xl text-xs transition-all shadow-xl flex items-center justify-center space-x-2 active:scale-95"
       >
         {isExporting ? (
-          <div className="animate-spin h-4 w-4 border-2 border-slate-900 border-t-transparent rounded-full" />
+          <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
         ) : (
           <>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
-            <span className="uppercase tracking-widest">EXPORT 16-BIT PNG</span>
+            <span className="uppercase tracking-widest">{satelliteUrl ? 'EXPORT DATA (ZIP-LIKE)' : 'EXPORT 16-BIT PNG'}</span>
           </>
         )}
       </button>
