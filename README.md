@@ -1,17 +1,18 @@
-# 🗺️ Cities Skylines II Heightmap Generator
+# 🗺️ Cities Skylines II Heightmap Generator v5.1
 ## *Engineered Precision. Global Scale. 16-bit Depth.*
 
-Welcome to the most precise heightmap acquisition tool designed specifically for **Cities Skylines II**. This isn't just a map downloader; it's a high-fidelity geospatial transformer that maps real-world coordinates to the native 14.336km² CS2 grid with pixel-perfect accuracy.
+Welcome to the most precise heightmap acquisition tool designed specifically for **Cities Skylines II**. This isn't just a map downloader; it's a high-fidelity geospatial transformer that maps real-world coordinates to the native CS2 grid with pixel-perfect accuracy.
 
 ---
 
 ### 🚀 Key Capabilities
 
-*   **Global Data Acquisition**: Leveraging AWS S3 Terrain Tiles (Terrarium format) to fetch raw elevation data from anywhere on Earth with meter-level precision.
-*   **1:1 Scale Matching**: Hard-coded to the native **14.336km x 14.336km** CS2 world size. The blue bounding box on the map is exactly what you will see in-game.
-*   **High-Fidelity 16-bit Depth**: Unlike standard 8-bit images that cause "terraced" mountains, this tool exports true 16-bit grayscale PNGs (0-65535 range), ensuring butter-smooth slopes.
-*   **Starting Area Logic**: Includes a precise 2.0km x 2.0km amber guide for your starting tile, allowing you to plan your city's birth with surgical precision.
-*   **Bilinear Interpolation Engine**: Advanced resampling ensures smooth transitions even when scaling Zoom Level 13 data to 4096px resolutions.
+*   **⚡ Parallel Data Acquisition**: Leveraging AWS S3 Terrain Tiles (Terrarium format) with parallel fetching logic to grab elevation data from anywhere on Earth up to 50% faster.
+*   **📐 Map Size Multiplier**: No longer restricted to the base grid. Use the **multiplier (1x - 4x)** to capture vast regions (up to ~57km²) for massive modded projects.
+*   **🛰️ Satellite Overlay Export**: Capture perfectly aligned satellite imagery alongside your heightmap to use as an "Image Overlay" in the CS2 editor for precise city planning.
+*   **⛰️ Automatic Height Calibration**: The tool automatically analyzes the fetched terrain and suggests the optimal **Max Elevation (Y-Scale)**, eliminating manual guesswork.
+*   **High-Fidelity 16-bit Depth**: Exports true 16-bit grayscale PNGs (0-65535 range), ensuring butter-smooth slopes and no "staircase" artifacts.
+*   **🌍 Multi-language Support**: Full support for both **Turkish (TR)** and **English (EN)** interfaces.
 
 ---
 
@@ -20,10 +21,10 @@ Welcome to the most precise heightmap acquisition tool designed specifically for
 | Feature | Specification |
 | :--- | :--- |
 | **Grid Resolution** | Up to 4096 x 4096 px (CS2 Native) |
-| **Export Format** | 16-bit Grayscale PNG |
-| **Physical Size** | Fixed 14.336 km² |
-| **Elevation Range** | 0m to 4000m (User Configurable) |
-| **Data Source** | AWS S3 Elevation Tiles (Terrarium) |
+| **Export Format** | 16-bit Grayscale PNG + Satellite PNG |
+| **Physical Size** | 14.336 km² up to 57.344 km² (Multiplier Support) |
+| **Elevation Range** | Automatic detection or 100m to 8000m manual override |
+| **Data Source** | AWS S3 Elevation Tiles & ArcGIS World Imagery |
 | **Search Engine** | OpenStreetMap Nominatim |
 
 ---
@@ -33,35 +34,35 @@ Welcome to the most precise heightmap acquisition tool designed specifically for
 ### 📖 Professional Usage Guide
 
 #### 1. Locate Your Canvas
-Use the **Global Search** bar or the **"Use My Location"** button to find your target terrain. Drag the map to center the blue rectangle over your chosen 14.3km territory.
+Use the **Global Search** bar or the **"Use My Location"** button. Drag the map to center the blue rectangle. 
+*   *New:* Use the **Multiplier** slider to increase the export area for extra-large maps.
 
-#### 2. Calibrate Elevation
-Adjust the **Max Elevation (Y-Scale)** slider. 
-*   *Tip:* If the mountains in your real-world location reach 1200m, set this to 1300m or higher to prevent "peaking" or clipping.
+#### 2. Satellite Option
+Enable **Satellite Export** if you want a reference image for roads, rivers, and shoreline placement.
 
-#### 3. Generate & Normalize
-Click **Generate Heightmap**. The engine will:
-1. Fetch 16-bit raw elevation tiles.
-2. Stitch and crop them to your viewport.
-3. Normalize the values to fit the 16-bit PNG spectrum relative to your `Max Height`.
+#### 3. Generate & Analyze
+Click **Generate Map Data**. The engine will:
+1. Fetch 16-bit raw elevation and satellite tiles in parallel.
+2. **Auto-adjust** the Max Height setting based on the real-world peaks found.
+3. Normalize the values to fit the 16-bit spectrum.
 
 #### 4. The Export
-Download the PNG. Notice the **CS2 Import Settings** box in the preview; it shows you the exact numbers you need to type into the game editor.
+Download the package. The **Preview Panel** will show both the Heightmap and Satellite view for verification.
 
 #### 5. CS2 Map Editor Import
 1. Launch Cities Skylines II and open the **Map Editor**.
 2. Go to the **Terrain Tab** -> **Import Heightmap**.
-3. Select your exported file.
-4. **CRITICAL:** Set the `Height Scale` in the editor to match exactly what you used here (e.g., if you set 1000m in the app, use 1000 in CS2).
+3. **CRITICAL:** Set the `Height Scale` in the editor to match the **Max Height** shown in the export summary here.
+4. If you exported the satellite image, use an Image Overlay mod to import it as a 1:1 ground guide.
 
 ---
 
 ### 🏗️ Technical Architecture
 
 *   **Logic**: WGS84 Web Mercator projection to pixel mapping.
-*   **Processing**: Typed Arrays (Uint16Array) for memory-efficient elevation handling.
-*   **Rendering**: HTML5 Canvas with Auto-Contrast logic for human-readable previews of 16-bit data.
-*   **Stitcher**: Dynamic tile loader for AWS S3 with asynchronous synchronization.
+*   **Memory Management**: Smart **ObjectURL** handling and auto-revocation to keep the browser light even with 4K satellite data.
+*   **Rendering**: HTML5 Canvas with Auto-Contrast logic and 16-bit RAW preview modes.
+*   **Stitcher**: Parallel tile loader for AWS S3 and ArcGIS with dynamic zoom level optimization based on multiplier scale.
 
 ---
 *Built for the dedicated architects who demand 1:1 realism.*

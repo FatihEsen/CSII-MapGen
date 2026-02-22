@@ -5,9 +5,10 @@ import { MapSettings, MapArea, Coordinates, TerrainResult } from './types';
 import { Sidebar } from './components/Sidebar';
 import { PreviewPanel } from './components/PreviewPanel';
 import { TerrainService } from './services/terrainService';
+import { translations } from './i18n';
 
-const CS2_BASE_SIZE_KM = 14.336; 
-const CS2_START_SIZE_KM = 2.0; 
+const CS2_BASE_SIZE_KM = 14.336;
+const CS2_START_SIZE_KM = 2.0;
 
 const DEFAULT_SETTINGS: MapSettings = {
   resolution: 4096,
@@ -15,9 +16,10 @@ const DEFAULT_SETTINGS: MapSettings = {
   sizeMultiplier: 1,
   minHeight: 0,
   maxHeight: 1000,
-  waterLevel: 0, 
+  waterLevel: 0,
   terrainType: 'REAL_WORLD',
   exportSatellite: true,
+  language: 'tr',
 };
 
 const INITIAL_CENTER: Coordinates = { lat: 40.7128, lng: -74.0060 }; // New York default
@@ -33,14 +35,14 @@ const getBoundsFromCenter = (center: L.LatLng, sizeKm: number) => {
   );
 };
 
-const MapController = ({ 
-  settings, 
-  onAreaChange, 
-  setMap 
-}: { 
+const MapController = ({
+  settings,
+  onAreaChange,
+  setMap
+}: {
   settings: MapSettings,
-  onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void, 
-  setMap: (map: L.Map) => void 
+  onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void,
+  setMap: (map: L.Map) => void
 }) => {
   const map = useMap();
 
@@ -54,7 +56,7 @@ const MapController = ({
     const currentMapSize = CS2_BASE_SIZE_KM * settings.sizeMultiplier;
     const exportBounds = getBoundsFromCenter(center, currentMapSize);
     const startAreaBounds = getBoundsFromCenter(center, CS2_START_SIZE_KM);
-    
+
     onAreaChange({
       center: { lat: center.lat, lng: center.lng },
       bounds: {
@@ -85,6 +87,7 @@ const App: React.FC = () => {
   const [selectionBounds, setSelectionBounds] = useState<L.LatLngBounds | null>(null);
   const [startAreaBounds, setStartAreaBounds] = useState<L.LatLngBounds | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const [terrainResult, setTerrainResult] = useState<TerrainResult | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
 
@@ -123,10 +126,13 @@ const App: React.FC = () => {
   const handleGenerateHeightmap = async () => {
     if (!selectedArea) return;
     setIsGenerating(true);
+    setGenerationProgress(0);
     try {
-      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings);
+      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings, (p) => {
+        setGenerationProgress(p);
+      });
       setTerrainResult(result);
-      
+
       // Auto-adjust maxHeight based on the fetched terrain
       setSettings(prev => ({
         ...prev,
@@ -140,32 +146,35 @@ const App: React.FC = () => {
     }
   };
 
-  const selectionOptions = { 
-    color: "#3b82f6", 
-    weight: 2, 
-    fillOpacity: 0.05, 
+  const selectionOptions = {
+    color: "#3b82f6",
+    weight: 2,
+    fillOpacity: 0.05,
     dashArray: '10, 10',
-    interactive: false 
+    interactive: false
   };
 
   const startAreaOptions = {
-    color: "#fbbf24", 
+    color: "#fbbf24",
     weight: 1,
     fillOpacity: 0.1,
     dashArray: '5, 5',
     interactive: false
   };
 
+  const t = translations[settings.language];
+
   return (
     <div className="flex flex-col lg:flex-row h-screen w-full bg-slate-950 overflow-hidden">
       <aside className="w-full lg:w-96 h-1/2 lg:h-full flex-shrink-0 border-r border-slate-800 bg-slate-900 shadow-xl z-20 overflow-y-auto">
-        <Sidebar 
-          settings={settings} 
-          setSettings={setSettings} 
+        <Sidebar
+          settings={settings}
+          setSettings={setSettings}
           onGenerate={handleGenerateHeightmap}
           onSearch={handleSearch}
           onUseLocation={useMyLocation}
           isGenerating={isGenerating}
+          progress={generationProgress}
         />
       </aside>
 
@@ -190,24 +199,18 @@ const App: React.FC = () => {
           </MapContainer>
         </div>
 
-        <div className="absolute top-4 left-4 z-10 pointer-events-none">
-          <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 p-4 rounded-lg shadow-2xl pointer-events-auto">
-            <h1 className="text-xl font-bold text-blue-400 tracking-tight">Cities Skylines II Heightmap Generator</h1>
-            <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-medium">1:1 High-Precision Cartography</p>
-          </div>
-        </div>
 
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[90vw]">
           <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 px-4 py-2 rounded-full shadow-lg flex items-center space-x-6">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-blue-400 bg-blue-400/10"></div>
               <span className="text-[10px] text-slate-300 font-bold whitespace-nowrap uppercase">
-                EXPORT SIZE: {(CS2_BASE_SIZE_KM * settings.sizeMultiplier).toFixed(2)}km
+                {t.exportSize}: {(CS2_BASE_SIZE_KM * settings.sizeMultiplier).toFixed(2)}km
               </span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-amber-400 bg-amber-400/20"></div>
-              <span className="text-[10px] text-amber-400 font-bold whitespace-nowrap uppercase">Start Area: {CS2_START_SIZE_KM}km</span>
+              <span className="text-[10px] text-amber-400 font-bold whitespace-nowrap uppercase">{t.startArea}: {CS2_START_SIZE_KM}km</span>
             </div>
             <div className="w-px h-3 bg-slate-700"></div>
             <div className="text-[10px] text-slate-400 font-mono">
@@ -218,11 +221,11 @@ const App: React.FC = () => {
 
         {terrainResult && (
           <div className="absolute top-4 right-4 w-80 z-30 pointer-events-auto">
-            <PreviewPanel 
-              data={terrainResult.heightmap} 
+            <PreviewPanel
+              data={terrainResult.heightmap}
               satelliteUrl={terrainResult.satelliteUrl}
-              settings={settings} 
-              onClose={() => setTerrainResult(null)} 
+              settings={settings}
+              onClose={() => setTerrainResult(null)}
             />
           </div>
         )}
