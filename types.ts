@@ -3,6 +3,7 @@ export type TerrainType = 'REAL_WORLD' | 'PROCEDURAL_COAST' | 'RIVER_VALLEY' | '
 export interface MapSettings {
   resolution: number;
   physicalSizeKm: number;
+  sizeMultiplier: number; // Added: 1x, 2x, 3x, 4x
   minHeight: number;
   maxHeight: number;
   waterLevel: number;

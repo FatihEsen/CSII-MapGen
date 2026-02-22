@@ -25,6 +25,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSearch(searchQuery);
   };
 
+  const currentSizeKm = (14.336 * settings.sizeMultiplier).toFixed(2);
+
   return (
     <div className="p-6 space-y-8">
       {/* Search Section */}
@@ -65,7 +67,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="bg-blue-500/10 text-blue-400 text-[9px] px-2 py-0.5 rounded border border-blue-500/20">CS2 ENGINE</span>
         </div>
         
-        <div className="space-y-5">
+        <div className="space-y-6">
+          {/* Map Multiplier */}
+          <div>
+            <label className="flex justify-between text-xs font-medium text-slate-400 mb-2">
+              <span>Map Size Multiplier</span>
+              <span className="text-blue-400 font-mono font-bold">{settings.sizeMultiplier}x ({currentSizeKm}km)</span>
+            </label>
+            <input 
+              type="range" min="1" max="4" step="0.5"
+              value={settings.sizeMultiplier}
+              onChange={(e) => setSettings({...settings, sizeMultiplier: Number(e.target.value)})}
+              className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+            <div className="flex justify-between text-[8px] text-slate-600 mt-1 uppercase font-bold px-1">
+              <span>1x (Base)</span>
+              <span>2x</span>
+              <span>3x</span>
+              <span>4x (Max)</span>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-2">Output Resolution</label>
             <select 
@@ -120,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isGenerating ? (
             <div className="flex items-center space-x-2">
               <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-              <span className="text-sm uppercase">Fetching Data...</span>
+              <span className="text-sm uppercase font-bold">Fetching Data...</span>
             </div>
           ) : (
             <>
@@ -143,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <ul className="space-y-2 text-[10px] text-slate-400">
             <li className="flex items-start">
               <span className="text-blue-500 font-bold mr-2">1.</span>
-              Harita üzerinden bölgenizi seçin.
+              Harita üzerinden bölgenizi seçin (Multiplier ile alanı genişletebilirsiniz).
             </li>
             <li className="flex items-start">
               <span className="text-blue-500 font-bold mr-2">2.</span>
@@ -162,7 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <footer className="pt-8 flex flex-col items-center space-y-1">
-        <p className="text-[9px] text-slate-600 font-medium">CS2 Heightmap Generator v5.0</p>
+        <p className="text-[9px] text-slate-600 font-medium">CS2 Heightmap Generator v5.1</p>
         <p className="text-[9px] text-slate-700 uppercase tracking-tighter">Professional 1:1 Scale Elevation Tool</p>
       </footer>
     </div>

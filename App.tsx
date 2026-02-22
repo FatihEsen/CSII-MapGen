@@ -6,12 +6,13 @@ import { Sidebar } from './components/Sidebar';
 import { PreviewPanel } from './components/PreviewPanel';
 import { TerrainService } from './services/terrainService';
 
-const CS2_MAP_SIZE_KM = 14.336; 
+const CS2_BASE_SIZE_KM = 14.336; 
 const CS2_START_SIZE_KM = 2.0; 
 
 const DEFAULT_SETTINGS: MapSettings = {
   resolution: 4096,
-  physicalSizeKm: CS2_MAP_SIZE_KM,
+  physicalSizeKm: CS2_BASE_SIZE_KM,
+  sizeMultiplier: 1,
   minHeight: 0,
   maxHeight: 1000,
   waterLevel: 0, 
@@ -32,7 +33,15 @@ const getBoundsFromCenter = (center: L.LatLng, sizeKm: number) => {
   );
 };
 
-const MapController = ({ onAreaChange, setMap }: { onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void, setMap: (map: L.Map) => void }) => {
+const MapController = ({ 
+  settings, 
+  onAreaChange, 
+  setMap 
+}: { 
+  settings: MapSettings,
+  onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void, 
+  setMap: (map: L.Map) => void 
+}) => {
   const map = useMap();
 
   useEffect(() => {
@@ -42,7 +51,8 @@ const MapController = ({ onAreaChange, setMap }: { onAreaChange: (area: MapArea,
 
   const updateArea = useCallback(() => {
     const center = map.getCenter();
-    const exportBounds = getBoundsFromCenter(center, CS2_MAP_SIZE_KM);
+    const currentMapSize = CS2_BASE_SIZE_KM * settings.sizeMultiplier;
+    const exportBounds = getBoundsFromCenter(center, currentMapSize);
     const startAreaBounds = getBoundsFromCenter(center, CS2_START_SIZE_KM);
     
     onAreaChange({
@@ -54,7 +64,7 @@ const MapController = ({ onAreaChange, setMap }: { onAreaChange: (area: MapArea,
         west: exportBounds.getWest(),
       }
     }, exportBounds, startAreaBounds);
-  }, [map, onAreaChange]);
+  }, [map, settings.sizeMultiplier, onAreaChange]);
 
   useMapEvents({
     move: updateArea,
@@ -170,7 +180,7 @@ const App: React.FC = () => {
               attribution='&copy; OpenStreetMap'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapController onAreaChange={handleAreaChange} setMap={setMapInstance} />
+            <MapController settings={settings} onAreaChange={handleAreaChange} setMap={setMapInstance} />
             {selectionBounds && (
               <Rectangle bounds={selectionBounds} pathOptions={selectionOptions} />
             )}
@@ -191,7 +201,9 @@ const App: React.FC = () => {
           <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 px-4 py-2 rounded-full shadow-lg flex items-center space-x-6">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-blue-400 bg-blue-400/10"></div>
-              <span className="text-[10px] text-slate-300 font-bold whitespace-nowrap uppercase">World Map: {CS2_MAP_SIZE_KM}km</span>
+              <span className="text-[10px] text-slate-300 font-bold whitespace-nowrap uppercase">
+                EXPORT SIZE: {(CS2_BASE_SIZE_KM * settings.sizeMultiplier).toFixed(2)}km
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 border border-dashed border-amber-400 bg-amber-400/20"></div>
