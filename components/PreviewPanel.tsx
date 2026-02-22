@@ -185,17 +185,6 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
 
   return (
     <div className="flex flex-col space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
-      {/* Integrated Header Panel */}
-      <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-5 shadow-2xl">
-        <div className="flex items-center space-x-3 mb-1">
-          <div className="w-2 h-8 bg-blue-500 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
-          <div>
-            <h1 className="text-lg font-black text-white tracking-tight leading-none">{t.title}</h1>
-            <p className="text-[9px] text-blue-400 uppercase tracking-[0.2em] font-bold mt-1 opacity-80">{t.subtitle}</p>
-          </div>
-        </div>
-      </div>
-
       {/* Main Preview Container */}
       <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 flex flex-col items-center backdrop-blur-md">
         <div className="flex w-full justify-between items-center mb-4">
@@ -231,8 +220,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
             <button
               onClick={() => setViewMode('heightmap')}
               className={`px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${viewMode === 'heightmap'
-                  ? 'bg-blue-600 border-blue-400 text-white'
-                  : 'bg-slate-900/80 border-slate-700 text-slate-400'
+                ? 'bg-blue-600 border-blue-400 text-white'
+                : 'bg-slate-900/80 border-slate-700 text-slate-400'
                 }`}
             >
               {t.heightMode}
@@ -241,8 +230,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
               <button
                 onClick={() => setViewMode('satellite')}
                 className={`px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${viewMode === 'satellite'
-                    ? 'bg-blue-600 border-blue-400 text-white'
-                    : 'bg-slate-900/80 border-slate-700 text-slate-400'
+                  ? 'bg-blue-600 border-blue-400 text-white'
+                  : 'bg-slate-900/80 border-slate-700 text-slate-400'
                   }`}
               >
                 {t.satMode}
@@ -254,8 +243,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
             <button
               onClick={() => setAutoContrast(!autoContrast)}
               className={`absolute top-2 right-2 px-2 py-1 rounded-md text-[9px] font-bold border transition-all ${autoContrast
-                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                  : 'bg-slate-800/50 border-slate-600/50 text-slate-500'
+                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                : 'bg-slate-800/50 border-slate-600/50 text-slate-500'
                 }`}
             >
               {autoContrast ? t.contrastOn : t.contrastRaw}
