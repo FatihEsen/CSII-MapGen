@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { MapSettings } from '../types';
 
@@ -23,29 +22,36 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
     return { minVal: min, maxVal: max };
   }, [data]);
 
+  const PREVIEW_SIZE = 512;
+
   useEffect(() => {
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
         const size = settings.resolution;
-        const imgData = ctx.createImageData(size, size);
+        const imgData = ctx.createImageData(PREVIEW_SIZE, PREVIEW_SIZE);
         const range = maxVal - minVal;
         const scaleFactor = range > 0 ? 255 / range : 0;
 
-        for (let i = 0; i < data.length; i++) {
-          const val16 = data[i];
-          let val8;
-          if (autoContrast) {
-             val8 = (val16 - minVal) * scaleFactor;
-          } else {
-             val8 = val16 >> 8;
+        for (let y = 0; y < PREVIEW_SIZE; y++) {
+          for (let x = 0; x < PREVIEW_SIZE; x++) {
+            const dataX = Math.floor((x / PREVIEW_SIZE) * size);
+            const dataY = Math.floor((y / PREVIEW_SIZE) * size);
+            const val16 = data[dataY * size + dataX];
+
+            let val8;
+            if (autoContrast) {
+               val8 = (val16 - minVal) * scaleFactor;
+            } else {
+               val8 = val16 >> 8;
+            }
+            val8 = Math.max(0, Math.min(255, val8));
+            const idx = (y * PREVIEW_SIZE + x) * 4;
+            imgData.data[idx] = val8;
+            imgData.data[idx + 1] = val8;
+            imgData.data[idx + 2] = val8;
+            imgData.data[idx + 3] = 255;
           }
-          val8 = Math.max(0, Math.min(255, val8));
-          const idx = i * 4;
-          imgData.data[idx] = val8;
-          imgData.data[idx + 1] = val8;
-          imgData.data[idx + 2] = val8;
-          imgData.data[idx + 3] = 255;
         }
         ctx.putImageData(imgData, 0, 0);
       }
@@ -159,10 +165,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, settings, onCl
       </div>
       
       <div className="w-full aspect-square bg-slate-950 rounded-xl border border-slate-800 overflow-hidden mb-5 shadow-inner group relative">
-        <canvas 
-          ref={canvasRef} 
-          width={settings.resolution} 
-          height={settings.resolution} 
+        <canvas
+          ref={canvasRef}
+          width={PREVIEW_SIZE}
+          height={PREVIEW_SIZE}
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
         />
         <button 

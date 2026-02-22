@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Rectangle, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -32,12 +31,13 @@ const getBoundsFromCenter = (center: L.LatLng, sizeKm: number) => {
   );
 };
 
-const MapController = ({ onAreaChange }: { onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void }) => {
+const MapController = ({ onAreaChange, setMap }: { onAreaChange: (area: MapArea, fullBounds: L.LatLngBounds, startBounds: L.LatLngBounds) => void, setMap: (map: L.Map) => void }) => {
   const map = useMap();
-  
+
   useEffect(() => {
+    setMap(map);
     setTimeout(() => map.invalidateSize(), 100);
-  }, [map]);
+  }, [map, setMap]);
 
   const updateArea = useCallback(() => {
     const center = map.getCenter();
@@ -86,12 +86,16 @@ const App: React.FC = () => {
   const handleSearch = async (query: string) => {
     if (!query || !mapInstance) return;
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
+        headers: {
+          'User-Agent': 'CS2-Heightmap-Generator/1.0 (https://github.com/FatihEsen/CSII-MapGen)'
+        }
+      });
       const data = await response.json();
       if (data && data.length > 0) {
         mapInstance.flyTo([parseFloat(data[0].lat), parseFloat(data[0].lon)], 13);
       } else {
-        alert("Location not found.");
+        alert("Konum bulunamadı.");
       }
     } catch (err) {
       console.error(err);
@@ -102,7 +106,7 @@ const App: React.FC = () => {
     if (!mapInstance) return;
     navigator.geolocation.getCurrentPosition((pos) => {
       mapInstance.flyTo([pos.coords.latitude, pos.coords.longitude], 13);
-    }, (err) => alert("Could not get location."));
+    }, (err) => alert("Konum alınamadı."));
   };
 
   const handleGenerateHeightmap = async () => {
@@ -150,17 +154,16 @@ const App: React.FC = () => {
 
       <main className="flex-1 relative h-1/2 lg:h-full min-h-0 bg-slate-800">
         <div className="absolute inset-0 z-0">
-          <MapContainer 
-            center={[INITIAL_CENTER.lat, INITIAL_CENTER.lng]} 
-            zoom={12} 
+          <MapContainer
+            center={[INITIAL_CENTER.lat, INITIAL_CENTER.lng]}
+            zoom={12}
             className="w-full h-full"
-            ref={setMapInstance}
           >
             <TileLayer
               attribution='&copy; OpenStreetMap'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapController onAreaChange={handleAreaChange} />
+            <MapController onAreaChange={handleAreaChange} setMap={setMapInstance} />
             {selectionBounds && (
               <Rectangle bounds={selectionBounds} pathOptions={selectionOptions} />
             )}

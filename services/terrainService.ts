@@ -1,4 +1,3 @@
-
 import { MapArea, MapSettings } from '../types';
 
 export class TerrainService {
@@ -65,15 +64,25 @@ export class TerrainService {
     canvas.width = xRange * 256;
     canvas.height = yRange * 256;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) throw new Error("Canvas context failed");
+    if (!ctx) throw new Error("Tuval içeriği alınamadı.");
     const promises = [];
+    let failedCount = 0;
     for (let x = 0; x < xRange; x++) {
       for (let y = 0; y < yRange; y++) {
         const url = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${ZOOM}/${tileX_min + x}/${tileY_min + y}.png`;
-        promises.push(this.loadImage(url).then(img => ctx.drawImage(img, x * 256, y * 256)).catch(() => {}));
+        promises.push(this.loadImage(url)
+          .then(img => ctx.drawImage(img, x * 256, y * 256))
+          .catch(err => {
+            console.warn(`Tile yüklenemedi: ${url}`, err);
+            failedCount++;
+          })
+        );
       }
     }
     await Promise.all(promises);
+    if (failedCount > 0) {
+      console.warn(`${failedCount} adet tile yüklenemedi. Bu durum yükseklik haritasında boşluklara neden olabilir.`);
+    }
     const worldSize = 256 * Math.pow(2, ZOOM);
     const project = (lat: number, lng: number) => {
       let siny = Math.min(Math.max(Math.sin(lat * Math.PI / 180), -0.9999), 0.9999);
