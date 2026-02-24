@@ -34,7 +34,7 @@ export class TerrainService {
       total += res * amplitude;
       maxValue += amplitude;
       amplitude *= persistence;
-      frequency *= 2;
+      frequency *= 2.0;
     }
     return total / maxValue;
   }
@@ -52,14 +52,23 @@ export class TerrainService {
     });
   }
 
-  private static async fetchTerrainTiles(area: MapArea): Promise<{ grid: Float32Array, width: number, height: number, minE: number, maxE: number }> {
-    const ZOOM = 13;
+  private static async fetchTerrainTiles(area: MapArea, forceZoom?: number): Promise<{ grid: Float32Array, width: number, height: number, minE: number, maxE: number }> {
+    // Default to high detail (Zoom 15) for main maps, but allow fallback for large areas
+    const ZOOM = forceZoom || 15;
     const tileX_min = this.long2tile(area.bounds.west, ZOOM);
     const tileX_max = this.long2tile(area.bounds.east, ZOOM);
     const tileY_min = this.lat2tile(area.bounds.north, ZOOM);
     const tileY_max = this.lat2tile(area.bounds.south, ZOOM);
     const xRange = tileX_max - tileX_min + 1;
     const yRange = tileY_max - tileY_min + 1;
+
+    // Safety check for tile count (approx 625 tiles max)
+    if (xRange * yRange > 625 && (!forceZoom || forceZoom > 13)) {
+      const nextZoom = (forceZoom || 15) - 1;
+      console.warn(`Too many terrain tiles requested (${xRange * yRange}) at zoom ${ZOOM}, reducing to zoom ${nextZoom}`);
+      return this.fetchTerrainTiles(area, nextZoom);
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = xRange * 256;
     canvas.height = yRange * 256;
@@ -203,7 +212,7 @@ export class TerrainService {
             const absH = top * (1 - fy) + bottom * fy;
             height = absH / maxHeight;
           } else {
-            height = this.getFBM(nx, ny, 6, 0.5, 2.0, seed);
+            height = this.getFBM(nx, ny, 10, 0.5, 2.0, seed);
           }
           data[cy * size + x] = Math.floor(Math.max(0, Math.min(1, height)) * 65535);
         }
@@ -234,7 +243,7 @@ export class TerrainService {
         if (onProgress) onProgress(5);
         const [terrain, worldTerrain, satellite] = await Promise.all([
           this.fetchTerrainTiles(area),
-          settings.exportWorldMap && worldArea ? this.fetchTerrainTiles(worldArea) : Promise.resolve(null),
+          settings.exportWorldMap && worldArea ? this.fetchTerrainTiles(worldArea, 13) : Promise.resolve(null),
           settings.exportSatellite ? this.fetchSatelliteTiles(area, settings.resolution, settings.sizeMultiplier) : Promise.resolve(undefined)
         ]);
         realData = terrain;
