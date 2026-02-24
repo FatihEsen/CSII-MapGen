@@ -5,6 +5,8 @@
 ![Engine](https://img.shields.io/badge/Engine-CS2_Native-orange?style=for-the-badge)
 ![Tech](https://img.shields.io/badge/Technology-Super--Sampling-green?style=for-the-badge)
 
+![Preview](./screenshots/CSIImg.png)
+
 Welcome to **MAPGEN PRO**, the ultimate geospatial acquisition tool for **Cities Skylines II**. Designed for professional map creators and realism enthusiasts, this tool bridges the gap between real-world topography and the CS2 engine with unparalleled precision.
 
 ---
