@@ -158,6 +158,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 shadow-inner"></div>
             </label>
           </div>
+
+          <div className="flex items-center justify-between p-3 bg-slate-900/40 rounded-xl border border-slate-700/30">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-bold text-slate-300 uppercase tracking-tight">{t.worldMapExport}</span>
+              <span className="text-[9px] text-slate-500">{t.worldMapHint}</span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={settings.exportWorldMap}
+                onChange={(e) => setSettings({ ...settings, exportWorldMap: e.target.checked })}
+              />
+              <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 shadow-inner"></div>
+            </label>
+          </div>
         </div>
       </section>
 

@@ -4,12 +4,13 @@ import { translations } from '../i18n';
 
 interface PreviewPanelProps {
   data: Uint16Array;
+  worldHeightmap?: Uint16Array;
   satelliteUrl?: string;
   settings: MapSettings;
   onClose: () => void;
 }
 
-export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, settings, onClose }) => {
+export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, worldHeightmap, satelliteUrl, settings, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [autoContrast, setAutoContrast] = useState(true);
@@ -64,14 +65,6 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
     }
   }, [data, settings.resolution, autoContrast, minVal, maxVal, viewMode, satelliteUrl]);
 
-  useEffect(() => {
-    return () => {
-      // Revoke ObjectURL to free memory if it's a blob URL
-      // But only if we are not in the middle of a download
-      // Actually, standard practice is OK, but let's be careful.
-    };
-  }, [satelliteUrl]);
-
   const crc32 = (() => {
     const table = new Uint32Array(256);
     for (let i = 0; i < 256; i++) {
@@ -100,60 +93,64 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
     return chunk;
   };
 
+  const generatePngBlob = async (pixelData: Uint16Array, width: number, height: number) => {
+    const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ihdrData = new Uint8Array(13);
+    const ihdrView = new DataView(ihdrData.buffer);
+    ihdrView.setUint32(0, width);
+    ihdrView.setUint32(4, height);
+    ihdrData[8] = 16; // 16-bit
+    ihdrData[9] = 0;  // Grayscale
+    ihdrData[10] = 0;
+    ihdrData[11] = 0;
+    ihdrData[12] = 0;
+    const ihdr = createChunk('IHDR', ihdrData);
+
+    const uncompressedSize = height * (1 + width * 2);
+    const uncompressed = new Uint8Array(uncompressedSize);
+
+    for (let y = 0; y < height; y++) {
+      const rowStart = y * (1 + width * 2);
+      uncompressed[rowStart] = 0; // Filter type 0
+      for (let x = 0; x < width; x++) {
+        const val = pixelData[y * width + x];
+        uncompressed[rowStart + 1 + x * 2] = (val >> 8) & 0xff;
+        uncompressed[rowStart + 1 + x * 2 + 1] = val & 0xff;
+      }
+      if (y % 512 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter();
+    writer.write(uncompressed);
+    writer.close();
+    const compressedParts: Uint8Array[] = [];
+    const reader = cs.readable.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      compressedParts.push(value);
+    }
+    const compressed = new Uint8Array(compressedParts.reduce((acc, p) => acc + p.length, 0));
+    let offset = 0;
+    for (const p of compressedParts) {
+      compressed.set(p, offset);
+      offset += p.length;
+    }
+    const idat = createChunk('IDAT', compressed);
+    const iend = createChunk('IEND', new Uint8Array(0));
+    return new Blob([signature, ihdr, idat, iend], { type: 'image/png' });
+  };
+
   const handleDownload = async () => {
     setIsExporting(true);
     try {
-      // 1. Download Heightmap
       const width = settings.resolution;
       const height = settings.resolution;
-      const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-      const ihdrData = new Uint8Array(13);
-      const ihdrView = new DataView(ihdrData.buffer);
-      ihdrView.setUint32(0, width);
-      ihdrView.setUint32(4, height);
-      ihdrData[8] = 16;
-      ihdrData[9] = 0;
-      ihdrData[10] = 0;
-      ihdrData[11] = 0;
-      ihdrData[12] = 0;
-      const ihdr = createChunk('IHDR', ihdrData);
 
-      const uncompressedSize = height * (1 + width * 2);
-      const uncompressed = new Uint8Array(uncompressedSize);
-
-      for (let y = 0; y < height; y++) {
-        const rowStart = y * (1 + width * 2);
-        uncompressed[rowStart] = 0;
-        for (let x = 0; x < width; x++) {
-          const val = data[y * width + x];
-          uncompressed[rowStart + 1 + x * 2] = (val >> 8) & 0xff;
-          uncompressed[rowStart + 1 + x * 2 + 1] = val & 0xff;
-        }
-        if (y % 512 === 0) await new Promise(r => setTimeout(r, 0));
-      }
-
-      const cs = new CompressionStream('deflate');
-      const writer = cs.writable.getWriter();
-      writer.write(uncompressed);
-      writer.close();
-      const compressedParts: Uint8Array[] = [];
-      const reader = cs.readable.getReader();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        compressedParts.push(value);
-      }
-      const compressed = new Uint8Array(compressedParts.reduce((acc, p) => acc + p.length, 0));
-      let offset = 0;
-      for (const p of compressedParts) {
-        compressed.set(p, offset);
-        offset += p.length;
-      }
-      const idat = createChunk('IDAT', compressed);
-      const iend = createChunk('IEND', new Uint8Array(0));
-      const blob = new Blob([signature, ihdr, idat, iend], { type: 'image/png' });
-      const hUrl = URL.createObjectURL(blob);
-
+      // 1. Download Heightmap
+      const hBlob = await generatePngBlob(data, width, height);
+      const hUrl = URL.createObjectURL(hBlob);
       const hLink = document.createElement('a');
       hLink.href = hUrl;
       hLink.download = `heightmap_${settings.maxHeight}m.png`;
@@ -161,10 +158,23 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
       hLink.click();
       document.body.removeChild(hLink);
 
-      // Give browser time to start first download
       await new Promise(r => setTimeout(r, 500));
 
-      // 2. Download Satellite (if available)
+      // 2. Download World Map (if available)
+      if (worldHeightmap) {
+        const wBlob = await generatePngBlob(worldHeightmap, width, height);
+        const wUrl = URL.createObjectURL(wBlob);
+        const wLink = document.createElement('a');
+        wLink.href = wUrl;
+        wLink.download = `worldmap.png`;
+        document.body.appendChild(wLink);
+        wLink.click();
+        document.body.removeChild(wLink);
+        await new Promise(r => setTimeout(r, 500));
+        URL.revokeObjectURL(wUrl);
+      }
+
+      // 3. Download Satellite (if available)
       if (satelliteUrl && satelliteUrl.length > 0) {
         const sLink = document.createElement('a');
         sLink.href = satelliteUrl;
@@ -278,7 +288,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
-              <span className="uppercase tracking-widest">{satelliteUrl ? t.exportAll : t.exportPng}</span>
+              <span className="uppercase tracking-widest">{(satelliteUrl || worldHeightmap) ? t.exportAll : t.exportPng}</span>
             </>
           )}
         </button>

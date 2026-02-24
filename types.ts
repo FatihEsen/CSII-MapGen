@@ -11,6 +11,7 @@ export interface MapSettings {
   waterLevel: number;
   terrainType: TerrainType;
   exportSatellite: boolean;
+  exportWorldMap: boolean;
   language: Language;
 }
 
@@ -31,6 +32,7 @@ export interface MapArea {
 
 export interface TerrainResult {
   heightmap: Uint16Array;
+  worldHeightmap?: Uint16Array;
   satelliteUrl?: string;
   minElevation: number;
   maxElevation: number;
