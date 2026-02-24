@@ -4,12 +4,13 @@ import { translations } from '../i18n';
 
 interface PreviewPanelProps {
   data: Uint16Array;
+  worldHeightmap?: Uint16Array;
   satelliteUrl?: string;
   settings: MapSettings;
   onClose: () => void;
 }
 
-export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, settings, onClose }) => {
+export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, worldHeightmap, satelliteUrl, settings, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [autoContrast, setAutoContrast] = useState(true);
@@ -64,14 +65,6 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
     }
   }, [data, settings.resolution, autoContrast, minVal, maxVal, viewMode, satelliteUrl]);
 
-  useEffect(() => {
-    return () => {
-      // Revoke ObjectURL to free memory if it's a blob URL
-      // But only if we are not in the middle of a download
-      // Actually, standard practice is OK, but let's be careful.
-    };
-  }, [satelliteUrl]);
-
   const crc32 = (() => {
     const table = new Uint32Array(256);
     for (let i = 0; i < 256; i++) {
@@ -100,60 +93,90 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
     return chunk;
   };
 
+  const generatePngBlob = async (pixelData: Uint16Array, width: number, height: number) => {
+    const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ihdrData = new Uint8Array(13);
+    const ihdrView = new DataView(ihdrData.buffer);
+    ihdrView.setUint32(0, width);
+    ihdrView.setUint32(4, height);
+    ihdrData[8] = 16; // 16-bit
+    ihdrData[9] = 0;  // Grayscale
+    ihdrData[10] = 0;
+    ihdrData[11] = 0;
+    ihdrData[12] = 0;
+    const ihdr = createChunk('IHDR', ihdrData);
+
+    const uncompressedSize = height * (1 + width * 2);
+    const uncompressed = new Uint8Array(uncompressedSize);
+
+    for (let y = 0; y < height; y++) {
+      const rowStart = y * (1 + width * 2);
+      uncompressed[rowStart] = 0; // Filter type 0
+      for (let x = 0; x < width; x++) {
+        const val = pixelData[y * width + x];
+        uncompressed[rowStart + 1 + x * 2] = (val >> 8) & 0xff;
+        uncompressed[rowStart + 1 + x * 2 + 1] = val & 0xff;
+      }
+      if (y % 512 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter();
+    writer.write(uncompressed);
+    writer.close();
+    const compressedParts: Uint8Array[] = [];
+    const reader = cs.readable.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      compressedParts.push(value);
+    }
+    const compressed = new Uint8Array(compressedParts.reduce((acc, p) => acc + p.length, 0));
+    let offset = 0;
+    for (const p of compressedParts) {
+      compressed.set(p, offset);
+      offset += p.length;
+    }
+    const idat = createChunk('IDAT', compressed);
+    const iend = createChunk('IEND', new Uint8Array(0));
+    return new Blob([signature, ihdr, idat, iend], { type: 'image/png' });
+  };
+
   const handleDownload = async () => {
     setIsExporting(true);
     try {
-      // 1. Download Heightmap
-      const width = settings.resolution;
-      const height = settings.resolution;
-      const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-      const ihdrData = new Uint8Array(13);
-      const ihdrView = new DataView(ihdrData.buffer);
-      ihdrView.setUint32(0, width);
-      ihdrView.setUint32(4, height);
-      ihdrData[8] = 16;
-      ihdrData[9] = 0;
-      ihdrData[10] = 0;
-      ihdrData[11] = 0;
-      ihdrData[12] = 0;
-      const ihdr = createChunk('IHDR', ihdrData);
+      let width = settings.resolution;
+      let height = settings.resolution;
+      let exportData = data;
+      let exportWorldData = worldHeightmap;
 
-      const uncompressedSize = height * (1 + width * 2);
-      const uncompressed = new Uint8Array(uncompressedSize);
+      // Cities Skylines II supports max 4096px. 
+      // If resolution is 8192, we downsample to 4096 for compatibility while keeping detail.
+      if (width > 4096) {
+        width = 4096;
+        height = 4096;
+        
+        // Simple 2x2 average downsampling for heightmap
+        const downsample = (src: Uint16Array, size: number) => {
+          const target = new Uint16Array(4096 * 4096);
+          for (let y = 0; y < 4096; y++) {
+            for (let x = 0; x < 4096; x++) {
+              const i = (y * 2) * size + (x * 2);
+              target[y * 4096 + x] = Math.floor((src[i] + src[i+1] + src[i+size] + src[i+size+1]) / 4);
+            }
+          }
+          return target;
+        };
 
-      for (let y = 0; y < height; y++) {
-        const rowStart = y * (1 + width * 2);
-        uncompressed[rowStart] = 0;
-        for (let x = 0; x < width; x++) {
-          const val = data[y * width + x];
-          uncompressed[rowStart + 1 + x * 2] = (val >> 8) & 0xff;
-          uncompressed[rowStart + 1 + x * 2 + 1] = val & 0xff;
+        exportData = downsample(data, 8192);
+        if (worldHeightmap) {
+          exportWorldData = downsample(worldHeightmap, 8192);
         }
-        if (y % 512 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
-      const cs = new CompressionStream('deflate');
-      const writer = cs.writable.getWriter();
-      writer.write(uncompressed);
-      writer.close();
-      const compressedParts: Uint8Array[] = [];
-      const reader = cs.readable.getReader();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        compressedParts.push(value);
-      }
-      const compressed = new Uint8Array(compressedParts.reduce((acc, p) => acc + p.length, 0));
-      let offset = 0;
-      for (const p of compressedParts) {
-        compressed.set(p, offset);
-        offset += p.length;
-      }
-      const idat = createChunk('IDAT', compressed);
-      const iend = createChunk('IEND', new Uint8Array(0));
-      const blob = new Blob([signature, ihdr, idat, iend], { type: 'image/png' });
-      const hUrl = URL.createObjectURL(blob);
-
+      // 1. Download Heightmap
+      const hBlob = await generatePngBlob(exportData, width, height);
+      const hUrl = URL.createObjectURL(hBlob);
       const hLink = document.createElement('a');
       hLink.href = hUrl;
       hLink.download = `heightmap_${settings.maxHeight}m.png`;
@@ -161,10 +184,23 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
       hLink.click();
       document.body.removeChild(hLink);
 
-      // Give browser time to start first download
       await new Promise(r => setTimeout(r, 500));
 
-      // 2. Download Satellite (if available)
+      // 2. Download World Map (if available)
+      if (exportWorldData) {
+        const wBlob = await generatePngBlob(exportWorldData, width, height);
+        const wUrl = URL.createObjectURL(wBlob);
+        const wLink = document.createElement('a');
+        wLink.href = wUrl;
+        wLink.download = `worldmap.png`;
+        document.body.appendChild(wLink);
+        wLink.click();
+        document.body.removeChild(wLink);
+        await new Promise(r => setTimeout(r, 500));
+        URL.revokeObjectURL(wUrl);
+      }
+
+      // 3. Download Satellite (if available)
       if (satelliteUrl && satelliteUrl.length > 0) {
         const sLink = document.createElement('a');
         sLink.href = satelliteUrl;
@@ -252,18 +288,29 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
           )}
         </div>
 
-        <div className="w-full mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <h4 className="text-[10px] font-bold text-amber-400 mb-1 uppercase tracking-wider">{t.importSettings}</h4>
-          <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="w-full mb-5 p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl shadow-inner backdrop-blur-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-2xl -mr-8 -mt-8 transition-colors group-hover:bg-blue-500/10"></div>
+          <h4 className="text-[10px] font-black text-blue-400 mb-3 uppercase tracking-[0.2em] flex items-center">
+            <span className="w-1 h-1 bg-blue-400 rounded-full mr-2"></span>
+            {t.importSettings}
+          </h4>
+          <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 uppercase">{t.heightScale}</span>
-              <span className="text-[11px] text-white font-mono font-bold">{settings.maxHeight}m</span>
+              <span className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">{t.heightScale}</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-lg text-white font-black font-mono leading-none">{settings.maxHeight}</span>
+                <span className="text-[10px] text-blue-500 font-bold">m</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 uppercase">{t.minHeight}</span>
-              <span className="text-[11px] text-white font-mono font-bold">0m</span>
+            <div className="flex flex-col border-l border-white/5 pl-4">
+              <span className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">{t.minHeight}</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-lg text-white font-black font-mono leading-none">0</span>
+                <span className="text-[10px] text-slate-600 font-bold">m</span>
+              </div>
             </div>
           </div>
+          <p className="text-[8px] text-slate-500 mt-3 italic leading-tight border-t border-white/5 pt-2">{t.autoAdjustHint}</p>
         </div>
 
         <button
@@ -278,7 +325,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, satelliteUrl, 
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
-              <span className="uppercase tracking-widest">{satelliteUrl ? t.exportAll : t.exportPng}</span>
+              <span className="uppercase tracking-widest">{(satelliteUrl || worldHeightmap) ? t.exportAll : t.exportPng}</span>
             </>
           )}
         </button>

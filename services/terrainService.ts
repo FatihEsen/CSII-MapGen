@@ -34,7 +34,7 @@ export class TerrainService {
       total += res * amplitude;
       maxValue += amplitude;
       amplitude *= persistence;
-      frequency *= 2;
+      frequency *= 2.0;
     }
     return total / maxValue;
   }
@@ -52,14 +52,23 @@ export class TerrainService {
     });
   }
 
-  private static async fetchTerrainTiles(area: MapArea): Promise<{ grid: Float32Array, width: number, height: number, minE: number, maxE: number }> {
-    const ZOOM = 13;
+  private static async fetchTerrainTiles(area: MapArea, forceZoom?: number): Promise<{ grid: Float32Array, width: number, height: number, minE: number, maxE: number }> {
+    // Default to high detail (Zoom 15) for main maps, but allow fallback for large areas
+    const ZOOM = forceZoom || 15;
     const tileX_min = this.long2tile(area.bounds.west, ZOOM);
     const tileX_max = this.long2tile(area.bounds.east, ZOOM);
     const tileY_min = this.lat2tile(area.bounds.north, ZOOM);
     const tileY_max = this.lat2tile(area.bounds.south, ZOOM);
     const xRange = tileX_max - tileX_min + 1;
     const yRange = tileY_max - tileY_min + 1;
+
+    // Safety check for tile count (approx 625 tiles max)
+    if (xRange * yRange > 625 && (!forceZoom || forceZoom > 13)) {
+      const nextZoom = (forceZoom || 15) - 1;
+      console.warn(`Too many terrain tiles requested (${xRange * yRange}) at zoom ${ZOOM}, reducing to zoom ${nextZoom}`);
+      return this.fetchTerrainTiles(area, nextZoom);
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = xRange * 256;
     canvas.height = yRange * 256;
@@ -171,40 +180,20 @@ export class TerrainService {
     });
   }
 
-  static async generateSimulatedTerrain(
-    area: MapArea,
-    settings: MapSettings,
+  private static async fillHeightmap(
+    size: number,
+    type: string,
+    realData: any,
+    maxHeight: number,
+    seed: number,
+    progressOffset: number,
+    progressScale: number,
     onProgress?: (p: number) => void
-  ): Promise<TerrainResult> {
-    const size = settings.resolution;
+  ): Promise<Uint16Array> {
     const data = new Uint16Array(size * size);
-    const seed = Math.random() * 1000;
-    const type = settings.terrainType;
-    let realData: { grid: Float32Array, width: number, height: number, minE: number, maxE: number } | null = null;
-    let satelliteUrl: string | undefined = undefined;
-
-    if (type === 'REAL_WORLD') {
-      try {
-        if (onProgress) onProgress(10);
-        const [terrain, satellite] = await Promise.all([
-          this.fetchTerrainTiles(area),
-          settings.exportSatellite ? this.fetchSatelliteTiles(area, settings.resolution, settings.sizeMultiplier) : Promise.resolve(undefined)
-        ]);
-        realData = terrain;
-        satelliteUrl = satellite;
-        if (onProgress) onProgress(40);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    const effectiveMaxHeight = (realData && type === 'REAL_WORLD') ? realData.maxE : settings.maxHeight;
-
-    // Process in chunks to keep UI responsive
     const CHUNK_SIZE = 64;
     for (let y = 0; y < size; y += CHUNK_SIZE) {
       const endY = Math.min(y + CHUNK_SIZE, size);
-
       for (let cy = y; cy < endY; cy++) {
         for (let x = 0; x < size; x++) {
           const nx = x / size;
@@ -221,30 +210,92 @@ export class TerrainService {
             const top = getVal(ix, iy) * (1 - fx) + getVal(ix + 1, iy) * fx;
             const bottom = getVal(ix, iy + 1) * (1 - fx) + getVal(ix + 1, iy + 1) * fx;
             const absH = top * (1 - fy) + bottom * fy;
-            height = absH / effectiveMaxHeight;
+            height = absH / maxHeight;
           } else {
-            height = this.getFBM(nx, ny, 6, 0.5, 2.0, seed);
+            height = this.getFBM(nx, ny, 10, 0.5, 2.0, seed);
           }
           data[cy * size + x] = Math.floor(Math.max(0, Math.min(1, height)) * 65535);
         }
       }
-
       if (onProgress) {
-        const progress = 40 + (y / size) * 60;
-        onProgress(Math.floor(progress));
+        onProgress(Math.floor(progressOffset + (y / size) * progressScale));
       }
-
-      // Yield to UI thread
       await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    return data;
+  }
+
+  static async generateSimulatedTerrain(
+    area: MapArea,
+    settings: MapSettings,
+    worldArea?: MapArea,
+    onProgress?: (p: number) => void
+  ): Promise<TerrainResult> {
+    const size = settings.resolution;
+    const seed = Math.random() * 1000;
+    const type = settings.terrainType;
+    let realData: any = null;
+    let worldRealData: any = null;
+    let satelliteUrl: string | undefined = undefined;
+
+    if (type === 'REAL_WORLD') {
+      try {
+        if (onProgress) onProgress(5);
+        const [terrain, worldTerrain, satellite] = await Promise.all([
+          this.fetchTerrainTiles(area),
+          settings.exportWorldMap && worldArea ? this.fetchTerrainTiles(worldArea, 13) : Promise.resolve(null),
+          settings.exportSatellite ? this.fetchSatelliteTiles(area, settings.resolution, settings.sizeMultiplier) : Promise.resolve(undefined)
+        ]);
+        realData = terrain;
+        worldRealData = worldTerrain;
+        satelliteUrl = satellite;
+        if (onProgress) onProgress(30);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    let globalMaxHeight = settings.maxHeight;
+    if (realData && type === 'REAL_WORLD') {
+      globalMaxHeight = realData.maxE;
+      if (worldRealData && worldRealData.maxE > globalMaxHeight) {
+        globalMaxHeight = worldRealData.maxE;
+      }
+    }
+
+    const heightmap = await this.fillHeightmap(
+      size,
+      type,
+      realData,
+      globalMaxHeight,
+      seed,
+      30,
+      worldRealData ? 35 : 70,
+      onProgress
+    );
+
+    let worldHeightmap: Uint16Array | undefined = undefined;
+    if (settings.exportWorldMap && worldArea) {
+      worldHeightmap = await this.fillHeightmap(
+        size,
+        type,
+        worldRealData,
+        globalMaxHeight,
+        seed,
+        65,
+        35,
+        onProgress
+      );
     }
 
     if (onProgress) onProgress(100);
 
     return {
-      heightmap: data,
+      heightmap,
+      worldHeightmap,
       satelliteUrl,
       minElevation: realData ? realData.minE : 0,
-      maxElevation: realData ? realData.maxE : 1000
+      maxElevation: globalMaxHeight
     };
   }
 }

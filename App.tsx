@@ -8,6 +8,7 @@ import { TerrainService } from './services/terrainService';
 import { translations } from './i18n';
 
 const CS2_BASE_SIZE_KM = 14.336;
+const CS2_WORLD_SIZE_KM = 57.344;
 const CS2_START_SIZE_KM = 2.0;
 
 const DEFAULT_SETTINGS: MapSettings = {
@@ -19,6 +20,7 @@ const DEFAULT_SETTINGS: MapSettings = {
   waterLevel: 0,
   terrainType: 'REAL_WORLD',
   exportSatellite: true,
+  exportWorldMap: false,
   language: 'tr',
 };
 
@@ -124,11 +126,27 @@ const App: React.FC = () => {
   };
 
   const handleGenerateHeightmap = async () => {
-    if (!selectedArea) return;
+    if (!selectedArea || !mapInstance) return;
     setIsGenerating(true);
     setGenerationProgress(0);
     try {
-      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings, (p) => {
+      let worldArea: MapArea | undefined = undefined;
+      if (settings.exportWorldMap) {
+        const center = mapInstance.getCenter();
+        const worldSize = CS2_WORLD_SIZE_KM * settings.sizeMultiplier;
+        const worldBounds = getBoundsFromCenter(center, worldSize);
+        worldArea = {
+          center: { lat: center.lat, lng: center.lng },
+          bounds: {
+            north: worldBounds.getNorth(),
+            south: worldBounds.getSouth(),
+            east: worldBounds.getEast(),
+            west: worldBounds.getWest(),
+          }
+        };
+      }
+
+      const result = await TerrainService.generateSimulatedTerrain(selectedArea, settings, worldArea, (p) => {
         setGenerationProgress(p);
       });
       setTerrainResult(result);
@@ -223,6 +241,7 @@ const App: React.FC = () => {
           <div className="absolute top-4 right-4 w-80 z-30 pointer-events-auto">
             <PreviewPanel
               data={terrainResult.heightmap}
+              worldHeightmap={terrainResult.worldHeightmap}
               satelliteUrl={terrainResult.satelliteUrl}
               settings={settings}
               onClose={() => setTerrainResult(null)}
