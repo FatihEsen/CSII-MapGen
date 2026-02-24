@@ -145,11 +145,37 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, worldHeightmap
   const handleDownload = async () => {
     setIsExporting(true);
     try {
-      const width = settings.resolution;
-      const height = settings.resolution;
+      let width = settings.resolution;
+      let height = settings.resolution;
+      let exportData = data;
+      let exportWorldData = worldHeightmap;
+
+      // Cities Skylines II supports max 4096px. 
+      // If resolution is 8192, we downsample to 4096 for compatibility while keeping detail.
+      if (width > 4096) {
+        width = 4096;
+        height = 4096;
+        
+        // Simple 2x2 average downsampling for heightmap
+        const downsample = (src: Uint16Array, size: number) => {
+          const target = new Uint16Array(4096 * 4096);
+          for (let y = 0; y < 4096; y++) {
+            for (let x = 0; x < 4096; x++) {
+              const i = (y * 2) * size + (x * 2);
+              target[y * 4096 + x] = Math.floor((src[i] + src[i+1] + src[i+size] + src[i+size+1]) / 4);
+            }
+          }
+          return target;
+        };
+
+        exportData = downsample(data, 8192);
+        if (worldHeightmap) {
+          exportWorldData = downsample(worldHeightmap, 8192);
+        }
+      }
 
       // 1. Download Heightmap
-      const hBlob = await generatePngBlob(data, width, height);
+      const hBlob = await generatePngBlob(exportData, width, height);
       const hUrl = URL.createObjectURL(hBlob);
       const hLink = document.createElement('a');
       hLink.href = hUrl;
@@ -161,8 +187,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, worldHeightmap
       await new Promise(r => setTimeout(r, 500));
 
       // 2. Download World Map (if available)
-      if (worldHeightmap) {
-        const wBlob = await generatePngBlob(worldHeightmap, width, height);
+      if (exportWorldData) {
+        const wBlob = await generatePngBlob(exportWorldData, width, height);
         const wUrl = URL.createObjectURL(wBlob);
         const wLink = document.createElement('a');
         wLink.href = wUrl;

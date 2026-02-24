@@ -126,7 +126,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <option value={1024}>1024 ({settings.language === 'tr' ? 'Test' : 'Testing'})</option>
               <option value={2048}>2048 ({settings.language === 'tr' ? 'Yüksek' : 'High'})</option>
               <option value={4096}>4096 (CS2 Native)</option>
-              <option value={8192}>8192 ({settings.language === 'tr' ? 'Ultra' : 'Ultra'})</option>
+              <option value={8192}>4096 ({settings.language === 'tr' ? 'Ultra Detay - SS' : 'Ultra Detail - SS'})</option>
             </select>
           </div>
 
