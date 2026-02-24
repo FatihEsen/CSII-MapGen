@@ -288,18 +288,29 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({ data, worldHeightmap
           )}
         </div>
 
-        <div className="w-full mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <h4 className="text-[10px] font-bold text-amber-400 mb-1 uppercase tracking-wider">{t.importSettings}</h4>
-          <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="w-full mb-5 p-4 bg-blue-500/10 border border-blue-500/20 rounded-2xl shadow-inner backdrop-blur-sm relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-2xl -mr-8 -mt-8 transition-colors group-hover:bg-blue-500/10"></div>
+          <h4 className="text-[10px] font-black text-blue-400 mb-3 uppercase tracking-[0.2em] flex items-center">
+            <span className="w-1 h-1 bg-blue-400 rounded-full mr-2"></span>
+            {t.importSettings}
+          </h4>
+          <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 uppercase">{t.heightScale}</span>
-              <span className="text-[11px] text-white font-mono font-bold">{settings.maxHeight}m</span>
+              <span className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">{t.heightScale}</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-lg text-white font-black font-mono leading-none">{settings.maxHeight}</span>
+                <span className="text-[10px] text-blue-500 font-bold">m</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[8px] text-slate-500 uppercase">{t.minHeight}</span>
-              <span className="text-[11px] text-white font-mono font-bold">0m</span>
+            <div className="flex flex-col border-l border-white/5 pl-4">
+              <span className="text-[8px] text-slate-500 uppercase font-black tracking-widest mb-1">{t.minHeight}</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-lg text-white font-black font-mono leading-none">0</span>
+                <span className="text-[10px] text-slate-600 font-bold">m</span>
+              </div>
             </div>
           </div>
+          <p className="text-[8px] text-slate-500 mt-3 italic leading-tight border-t border-white/5 pt-2">{t.autoAdjustHint}</p>
         </div>
 
         <button
